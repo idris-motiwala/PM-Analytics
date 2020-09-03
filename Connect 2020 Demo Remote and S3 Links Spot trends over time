@@ -1,0 +1,57 @@
+/* spot trends YOY across S3 and Analytics service */
+
+WITH cbOrders AS
+(
+  SELECT a.*
+  FROM (
+    SELECT p.displayName,
+           ROUND(SUM(l.qty * l.price),2) amount,
+           SUBSTR(MILLIS_TO_STR(o.orderDate,'1111-11'),0,7) orderYearMon
+    FROM (
+        SELECT VALUE NonUS
+        FROM NonUSorders NonUS
+        UNION ALL
+        SELECT VALUE US
+        FROM USorders US) o,
+    o.lineItems l,
+    products p
+  WHERE l.productId = p.productId
+  GROUP BY p.displayName,
+           SUBSTR(MILLIS_TO_STR(o.orderDate,'1111-11'),0,7)
+  ORDER BY amount DESC ) a
+WHERE rank() OVER (
+  PARTITION BY orderYearMon
+  ORDER BY amount DESC) = 1
+ORDER BY amount DESC
+),
+
+/* Spot order amount trends YOY by products, countries */
+s3Orders AS
+(
+SELECT a.*
+  FROM (
+    SELECT p.displayName,
+           ROUND(SUM(l.qty * l.price),2) prioramount,
+           SUBSTR(MILLIS_TO_STR(DATE_ADD_MILLIS(o.orderDate, 1, 'year'),'1111-11'),0,7) orderYearMon
+    FROM (
+      SELECT VALUE s3
+      FROM S3orders s3 ) o,
+    o.lineItems l,
+    products p
+  WHERE l.productId = p.productId
+  GROUP BY p.displayName,
+           SUBSTR(MILLIS_TO_STR(DATE_ADD_MILLIS(o.orderDate, 1, 'year'),'1111-11'),0,7)
+  ORDER BY prioramount DESC ) a
+WHERE rank() OVER (
+  PARTITION BY orderYearMon
+  ORDER BY prioramount DESC) = 1
+ORDER BY prioramount DESC
+)
+, 
+
+spotTrends AS (SELECT cbOrders.* FROM cbOrders UNION ALL SELECT s3Orders.* FROM s3Orders )
+SELECT orderYearMon, displayName, SUM(amount) current_year_amount, SUM(prioramount) prev_year_amount
+FROM spotTrends
+GROUP BY orderYearMon, displayName
+ORDER
+BY orderYearMon DESC

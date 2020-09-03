@@ -1,0 +1,27 @@
+/* Top 10 products from S3 Archive using Remote Links and External Dataset over AWS */
+
+SELECT a.*
+  FROM (
+    SELECT l.productId,
+           p.displayName,
+           ROUND(SUM(l.qty * l.price),2) prioramount,
+         o.billing.country country,
+         c.Country_Name
+    FROM (
+      SELECT VALUE s3
+      FROM S3orders s3 ) o,
+    o.lineItems l,
+    products p,
+  country c
+  WHERE l.productId = p.productId
+  AND o.billing.country = c.Two_Letter_Country_Code
+  GROUP BY o.billing.country,
+           l.productId,
+           p.displayName,
+         c.Country_Name
+  ORDER BY prioramount DESC ) a
+WHERE rank() OVER (
+  PARTITION BY country
+  ORDER BY prioramount DESC) = 1
+ORDER BY prioramount DESC
+LIMIT 10

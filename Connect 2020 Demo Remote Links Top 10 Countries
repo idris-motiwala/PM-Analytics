@@ -1,0 +1,34 @@
+/* Top 10 products from Data nodes using Remote Links */
+
+SELECT a.*
+FROM (
+  -- Build a query that returns product, location and order amount info 
+  SELECT l.productId,
+         p.displayName,
+         ROUND(SUM(l.qty * l.price),2) amount,
+         o.billing.country country,
+         c.Country_Name
+  FROM (
+      -- combine/UNION results from Orders in US as well as Orders from Non US countries 
+  SELECT VALUE NonUS
+    FROM NonUSorders NonUS
+   UNION ALL
+    SELECT VALUE US
+    FROM USorders US) o,
+  o.lineItems l,
+  products p,
+  country c
+WHERE l.productId = p.productId
+AND o.billing.country = c.Two_Letter_Country_Code
+GROUP BY o.billing.country,
+         l.productId,
+         p.displayName,
+         c.Country_Name
+ORDER BY amount DESC
+ ) a
+  -- apply window function to compute results by Order region/states and aggregate & sort by order amount
+WHERE rank() OVER (
+  PARTITION BY country
+  ORDER BY amount DESC) = 1
+ORDER BY amount DESC
+LIMIT 10

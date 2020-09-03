@@ -1,0 +1,90 @@
+
+-- eCommerce Cluster NonUS = 52.11.52.162 or http://ec2-52-11-52-162.us-west-2.compute.amazonaws.com:8091/
+
+-- Peter's Rightscale Cluster = 54.188.70.16 or http://ec2-54-188-70-16.us-west-2.compute.amazonaws.com:8091/
+
+-- Idris's Analytics cluster = 3.20.227.4
+
+CREATE LINK myS3link TYPE S3 WITH {
+    "accessKeyId":"AKIAWIDGYGBUZG7YR4ER",
+    "secretAccessKey":"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",
+    "region":"us-east-2"
+};
+
+CREATE EXTERNAL DATASET S3orders
+ON `cb-analytics-6.6-demo`
+AT myS3link
+USING "eCommerce/archives"
+WITH { "format": "json" };
+
+
+CREATE EXTERNAL DATASET S3productreviews(
+    _id STRING NOT UNKNOWN, 
+    docType STRING NOT UNKNOWN,
+    reviewId STRING NOT UNKNOWN,
+    productId BIGINT,
+    userId BIGINT,
+    reviewerName STRING NOT UNKNOWN,
+    reviewerEmail STRING NOT UNKNOWN,
+    rating BIGINT,
+    title STRING NOT UNKNOWN,
+    review STRING NOT UNKNOWN,
+    reviewDate BIGINT
+  ) 
+ON `cb-analytics-6.6-demo`
+AT myS3link
+USING "eCommerce/reviews"
+WITH { "format": "csv", "include": "*.csv", "header": false };
+
+
+--  query to generate JSON archive CA orders to S3
+
+SELECT CONCAT(e._id, "ARC") _id,
+       e.docType,
+       e.orderId,
+       e.userId,
+       DATE_ADD_MILLIS(e.orderDate, -1, "year") orderDate,
+       e.orderStatus,
+       ROUND(e.grandTotal*0.9,2) AS grandTotal,
+       e.billing,
+       e.shipping,
+       e.tax,
+       (
+         SELECT li.*,
+                ROUND(li.price*0.9,2) AS price,
+                ROUND(li.subTotal*0.9,2) AS subTotal
+         FROM e.lineItems AS li) AS lineItems
+FROM remoteCAOrders AS e;
+
+--  query to generate JSON archive non CA orders to S3
+
+SELECT CONCAT(e._id, "ARC") _id,
+       e.docType,
+       e.orderId,
+       e.userId,
+       DATE_ADD_MILLIS(e.orderDate, -1, "year") orderDate,
+       e.orderStatus,
+       ROUND(e.grandTotal*0.9,2) AS grandTotal,
+       e.billing,
+       e.shipping,
+       e.tax,
+       (
+         SELECT li.*,
+                ROUND(li.price*0.9,2) AS price,
+                ROUND(li.subTotal*0.9,2) AS subTotal
+         FROM e.lineItems AS li) AS lineItems
+FROM remoteNonCAOrders AS e;
+
+-- sample query
+select * from S3Orders limit 10;
+
+-- delete existing S3 link
+./couchbase-cli analytics-link-setup \
+        -c 54.188.70.16 \
+        -u Administrator \
+        -p password \
+        --delete \
+        --name myS3link \
+        --dataverse Default
+
+curl -v -u Administrator:couchword -X GET "http://54.188.70.16/analytics/link?dataverse=Default&name=myeCommerceS3Link&type=S3"
