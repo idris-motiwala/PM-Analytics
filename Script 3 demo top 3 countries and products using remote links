@@ -1,0 +1,57 @@
+/* Xcomm would like to identify the top 3 selling products for each country to
+optimize inventory planning and forecast revenue goals. */
+ 
+/* Top 3 selling products in the US is easy, as there is only one country
+in the dataset. */
+with USamounts as
+(
+   select max(o.billing.country) country,
+          max(l.productId) productId,
+          round(sum(l.qty * l.price),0) amount
+   from USorders o,
+        o.lineItems l
+   group by o.billing.country, l.productId
+   order by amount desc
+   limit 3
+),
+ 
+/* Retrieving the top 3 selling products for the rest of world first requires
+that we first aggregate sales amounts by country and by product. */
+NonUSamounts as
+(
+   select max(o.billing.country) country,
+          max(l.productId) productId,
+          round(sum(l.qty * l.price),0) amount
+   from NonUSorders o,
+        o.lineItems l
+   group by o.billing.country, l.productId
+   order by amount desc
+   limit 3
+),
+ 
+/* Then we can use a window function to limit the results to only the top 3
+for each country. */
+Top3ByCountry as
+(
+   select country, productId, amount
+   from USamounts
+ 
+   union all
+ 
+   select country, productId, amount
+   from NonUSamounts
+   where rank() over (partition by country order by amount desc) <= 3
+   order by country, amount desc
+)
+ 
+/* Finally we can pretty up our finally output by joining to the display names
+in our lookup tables. */
+select c.Country_Name Country, p.displayName Product, t.amount Amount
+from Top3ByCountry t,
+     products p,
+     country c
+where t.productId = p.productId
+and t.country = c.Two_Letter_Country_Code
+and (c.Continent_Name = 'Europe' OR c.Continent_Name = 'North America')
+order by t.amount desc, c.Country_Name asc
+limit 5;

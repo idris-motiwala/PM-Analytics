@@ -1,0 +1,53 @@
+
+
+-- Step 1: Create Remote/Couchbase Type link remotelinkUSorders in Analytics Service for 
+US eCommerce Cluster : http://ec2-52-11-52-162.us-west-2.compute.amazonaws.com:8091/ User: Slack Idris for creds
+
+-- Step 2: Create Remote/Couchbase Type link remotelinkNonUSorders in Analytics Service for
+ Non eCommerce Cluster : http://ec2-18-221-194-163.us-east-2.compute.amazonaws.com/ Slack Idris for creds
+
+
+-- Step 2: Execute Queries to 
+
+-- Create NonUS Orders DATASET
+CREATE DATASET NonUSorders ON `ecommerceNonUS`
+AT remotelinkNonUSorders
+WHERE docType = 'Order'
+AND billing.country != 'US';
+
+CONNECT Link remotelinkNonUSorders;
+
+-- Create US Orders DATASET
+CREATE DATASET USorders ON `ecommerce2020`
+AT remotelinkUSorders
+WHERE docType = 'Order'
+AND billing.country = 'US';
+
+CREATE DATASET products ON `ecommerce2020`
+AT remotelinkUSorders
+WHERE docType = 'Product';
+
+-- Create Country Continent Master DATASET
+CREATE DATASET country ON `countrycontinent`
+AT remotelinkUSorders;
+
+-- Create Country Continent Master DATASET
+CREATE DATASET users ON `ecommerce2020`
+AT remotelinkUSorders
+WHERE docType = 'User';
+
+CONNECT Link remotelinkUSorders;
+
+SELECT  value lnk
+FROM    Metadata.`Link` lnk
+ORDER
+BY      lnk.DataverseName, lnk.Name;
+
+-- non meta data set name
+SELECT ds.DatasetName
+FROM   Metadata.`Dataset` ds
+WHERE  ds.`DataverseName` <> 'Metadata';
+
+
+SELECT COUNT(*) FROM USorders;
+SELECT COUNT(*) FROM NonUSorders;

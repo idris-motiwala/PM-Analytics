@@ -1,0 +1,75 @@
+-- S3
+CREATE LINK mydemoS3link TYPE S3 WITH {
+    "accessKeyId":"<<your accessKeyId>>", 
+    "secretAccessKey":"<<your secretAccessKey>>", 
+    "region":"us-east-2"
+};
+
+
+CREATE EXTERNAL DATASET S3orders
+ON `cb-analytics-6.6-demo`
+AT mydemoS3link
+USING "eCommerce/archives"
+WITH { "format": "json" };
+
+
+CREATE EXTERNAL DATASET S3productreviews(
+    _id STRING NOT UNKNOWN, 
+    docType STRING NOT UNKNOWN,
+    reviewId STRING NOT UNKNOWN,
+    productId BIGINT,
+    userId BIGINT,
+    reviewerName STRING NOT UNKNOWN,
+    reviewerEmail STRING NOT UNKNOWN,
+    rating BIGINT,
+    title STRING NOT UNKNOWN,
+    review STRING NOT UNKNOWN,
+    reviewDate BIGINT
+  ) 
+ON `cb-analytics-6.6-demo`
+AT mydemoS3link
+USING "eCommerce/reviews"
+WITH { "format": "csv", "include": "*.csv", "header": false };
+
+-- Query Metadata Link
+select value lnk
+from Metadata.`Link` lnk
+order by lnk.DataverseName, lnk.Name;
+
+-- Sample query to get Review data from S3 and Product data from CB Analytics dataset
+SELECT pr.displayName Product, s3.review Review
+FROM   S3productreviews s3, 
+       products pr
+WHERE  s3.productId = pr.productId
+LIMIT  3;
+
+WITH PreferredCustomers AS
+(
+    SELECT count(*), AVG(rating) AS avgrating, userId
+    FROM S3productreviews
+    GROUP BY userId
+    HAVING count(*) > 9
+    ORDER BY avgrating DESC
+    LIMIT 100
+)
+SELECT round(sum(uso.grandTotal), 2) AS totalOrders, user.firstName || ' ' || user.lastName AS name
+FROM USorders AS uso, users AS user, PreferredCustomers AS pc
+WHERE pc.userId = uso.userId
+  AND pc.userId = user.userId
+GROUP BY user.firstName || ' ' || user.lastName
+ORDER BY totalOrders DESC
+LIMIT 10
+;
+
+
+-- CLI delete existing S3 link 
+./couchbase-cli analytics-link-setup \
+        -c ec2-44-240-251-42.us-west-2.compute.amazonaws.com \
+        -u <<username>> \
+        -p <<pwd>> \
+        --delete \
+        --name mydemoS3link \
+        --dataverse Default
+
+
+curl -v -u <<username>>:<<pwd>> -X DELETE "http://ec2-44-240-251-42.us-west-2.compute.amazonaws.com/analytics/link" -d scope=Default -d name=mydemoS3link

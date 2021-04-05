@@ -1,0 +1,76 @@
+/* Xcomm would like to identify the top selling products for each country, compare with previous years revenue from archived data in AWS S3 to
+optimize inventory planning and forecast revenue goals. */
+ 
+/* Top 5 selling products in the US is easy, as there is only one country
+in the dataset. */
+with USamounts as
+(
+   select max(o.billing.country) country,
+          max(l.productId) productId,
+          round(sum(l.qty * l.price),2) amount
+   from USorders o,
+        o.lineItems l
+   group by o.billing.country, l.productId
+   order by amount desc
+   limit 5
+),
+ 
+/* Retrieving the top 5 selling products for the rest of world first requires
+that we first aggregate sales amounts by country and by product. */
+NonUSamounts as
+(
+   select max(o.billing.country) country,
+          max(l.productId) productId,
+          round(sum(l.qty * l.price),2) amount
+   from NonUSorders o,
+        o.lineItems l
+   group by o.billing.country, l.productId
+   order by amount desc
+   limit 5
+),
+ 
+/* Then we can use a window function to limit the results to only the top 5
+for each country. */
+Top3ByCountry as
+(
+   select country, productId, amount
+   from USamounts
+ 
+   union all
+ 
+   select country, productId, amount
+   from NonUSamounts
+   where rank() over (partition by country order by amount desc) <= 5
+   order by country, amount desc
+),
+ 
+/* We need to pull all the aggregated sales amounts from S3 in order to do our
+comparison from current to prior. */
+S3amounts as
+(  
+   select max(o.billing.country) country,
+          max(l.productId) productId,
+          round(sum(l.qty * l.price),2) amount
+   from S3orders o,
+        o.lineItems l
+   group by o.billing.country, l.productId
+   order by amount desc
+)
+ 
+/* Finally we can pretty up our finally output by joining to the display names
+in our lookup tables. */
+select c.Country_Name Country, 
+       p.displayName Product,
+       t.amount Amount, a.amount ArchiveAmount,
+       round((t.amount - a.amount),2) Increase
+from Top3ByCountry t,
+     products p,
+     country c,
+     S3amounts a
+where t.productId = p.productId
+and t.country = c.Two_Letter_Country_Code
+and t.productId = a.productId
+and t.country = a.country
+and (c.Continent_Name = 'Europe' OR c.Continent_Name = 'North America')
+order by t.amount desc, c.Country_Name
+limit 5;
